@@ -49,6 +49,8 @@ tasks:
             - mysql
 '''
 
+import json
+
 from ansible.module_utils.basic import *
 
 
@@ -56,10 +58,21 @@ def main():
     module = AnsibleModule(
         argument_spec=dict(
             args=dict(required=False, type='str'),
+            data=dict(required=False, type='raw'),
             name=dict(required=False, type='str'),
             names=dict(required=False, type='list'),
             state=dict(default='configured', choices=['configured', 'absent'], type='str'),
-            monasca_setup_path=dict(default='/opt/monasca/bin/monasca-setup', type='str')
+            monasca_setup_path=dict(default='/opt/monasca/bin/monasca-setup', type='str'),
+
+            # ServicePlugin arguments, accepted for convenience.
+            # Unfortunately argument_spec doesn't support varargs so other plugins
+            # with deeply structured config will need to use 'data'.
+            service_name=dict(required=False, type='str'),
+            process_names=dict(required=False, type='list'),
+            file_dirs_names=dict(required=False, type='raw'),
+            directory_names=dict(required=False, type='list'),
+            service_api_url=dict(required=False, type='str'),
+            match_pattern=dict(required=False, type='str'),
         ),
         supports_check_mode=True
     )
@@ -77,10 +90,18 @@ def main():
         args.append('--dry_run')
     if module.params['state'] == 'absent':
         args.append('-r')
-    args.append('-d')
+    args.append('--detection_plugins')
     args.extend(names)
-    if module.params['args'] is not None:
-        args.extend(['-a', module.params['args']])
+
+    data = {k: v for k, v in module.params.items()
+            if k in ['service_name', 'process_names', 'file_dirs_names',
+                     'directory_names', 'service_api_url', 'match_pattern']}
+    if module.params['data'] is not None:
+        args.extend(['--detection_args_json', json.dumps(module.params['data'])])
+    elif any(v for k, v in data.items()):
+        args.extend(['--detection_args_json', json.dumps(data)])
+    elif module.params['args'] is not None:
+        args.extend(['--detection_args', module.params['args']])
 
     rc, out, err = module.run_command(args, check_rc=True)
     if err.find('Not all plugins found') != -1:
